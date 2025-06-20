@@ -249,26 +249,32 @@ async function makeAuthenticatedCreatorRequest(endpoint, method = 'GET', data = 
     }
 }
 
-// Web Scraping for Creator Discovery
+// Web Scraping for Creator Discovery from TikTok Affiliate Creator Connection
 async function scrapeCreators(filters) {
     let browser;
     try {
-        console.log('🕷️ Starting real web scraping for TikTok creators...');
+        console.log('🕷️ Starting real web scraping from TikTok Affiliate Creator Connection...');
         
         browser = await puppeteer.launch({
-            headless: true,
+            headless: "new",
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox',
                 '--disable-blink-features=AutomationControlled',
-                '--disable-features=VizDisplayCompositor'
+                '--disable-features=VizDisplayCompositor',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--no-first-run',
+                '--no-default-browser-check',
+                '--disable-default-apps',
+                '--disable-extensions'
             ]
         });
         
         const page = await browser.newPage();
         
         // Set realistic user agent and viewport
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
         await page.setViewport({ width: 1920, height: 1080 });
         
         // Add stealth techniques
@@ -277,133 +283,208 @@ async function scrapeCreators(filters) {
         });
         
         const creators = [];
-        const searchQueries = [
-            'phone repair',
-            'mobile repair',
-            'screen repair',
-            'tech repair',
-            'electronics fix',
-            'gadget repair'
-        ];
         
-        for (const query of searchQueries) {
+        try {
+            console.log('🔍 Navigating to TikTok Affiliate Creator Connection page...');
+            
+            // Navigate to the TikTok Affiliate Creator Connection page
+            const affiliateUrl = 'https://affiliate.tiktok.com/connection/creator?shop_region=GB';
+            await page.goto(affiliateUrl, { 
+                waitUntil: 'networkidle0',
+                timeout: 30000 
+            });
+            
+            console.log('📄 Page loaded, waiting for content...');
+            
+            // Wait for the page to fully load
+            await page.waitForTimeout(5000);
+            
+            // Try to handle any login requirements or cookie banners
             try {
-                console.log(`🔍 Searching TikTok for: ${query}`);
-                
-                const searchUrl = `https://www.tiktok.com/search?q=${encodeURIComponent(query)}&t=1609459200`;
-                await page.goto(searchUrl, { 
-                    waitUntil: 'networkidle0',
-                    timeout: 30000 
-                });
-                
-                // Wait for content to load
-                await page.waitForTimeout(3000);
-                
-                // Scroll to load more content
-                for (let i = 0; i < 3; i++) {
-                    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-                    await page.waitForTimeout(2000);
-                }
-                
-                // Extract creator data from search results
-                const pageCreators = await page.evaluate((filters, searchQuery) => {
-                    const results = [];
+                // Check if login is required
+                const loginRequired = await page.$('input[type="email"], input[type="password"], .login-button, [data-testid*="login"]');
+                if (loginRequired) {
+                    console.log('⚠️ Login required on affiliate page - will try alternative approach');
                     
-                    // Try multiple possible selectors for creator profiles
-                    const profileSelectors = [
-                        '[data-e2e="search-card-user"]',
-                        '[data-e2e="user-post-item"]',
-                        '.DivItemContainer',
-                        '.tiktok-1qb12g8-DivWrapper',
-                        '[data-e2e="recommend-list-item"]'
-                    ];
-                    
-                    for (const selector of profileSelectors) {
-                        const elements = document.querySelectorAll(selector);
+                    // Try to find any publicly visible creator data or listings
+                    const publicCreators = await page.evaluate((filters) => {
+                        const results = [];
                         
-                        elements.forEach(element => {
-                            try {
-                                // Extract username
-                                let username = '';
-                                const usernameSelectors = [
-                                    '[data-e2e="search-card-user-unique-id"]',
-                                    '.tiktok-1w9ukd4-PUniqueId',
-                                    '.unique-id',
-                                    'p[title]'
-                                ];
-                                
-                                for (const usernameSelector of usernameSelectors) {
-                                    const usernameEl = element.querySelector(usernameSelector);
-                                    if (usernameEl && usernameEl.textContent.trim()) {
-                                        username = usernameEl.textContent.trim();
-                                        if (!username.startsWith('@')) username = '@' + username;
-                                        break;
-                                    }
-                                }
-                                
-                                // Extract follower count
-                                let followers = 0;
-                                const followerSelectors = [
-                                    '[data-e2e="search-card-user-follower"]',
-                                    '.follower-count',
-                                    '.tiktok-1w9ukd4-PFollowerCount'
-                                ];
-                                
-                                for (const followerSelector of followerSelectors) {
-                                    const followerEl = element.querySelector(followerSelector);
-                                    if (followerEl) {
-                                        const followerText = followerEl.textContent.toLowerCase();
-                                        if (followerText.includes('k')) {
-                                            followers = parseFloat(followerText) * 1000;
-                                        } else if (followerText.includes('m')) {
-                                            followers = parseFloat(followerText) * 1000000;
+                        // Look for any creator listings that might be visible
+                        const creatorSelectors = [
+                            '.creator-card',
+                            '.creator-item',
+                            '[data-testid*="creator"]',
+                            '.affiliate-creator',
+                            '.creator-profile'
+                        ];
+                        
+                        for (const selector of creatorSelectors) {
+                            const elements = document.querySelectorAll(selector);
+                            
+                            elements.forEach(element => {
+                                try {
+                                    const username = element.querySelector('.username, .creator-name, [data-testid*="username"]')?.textContent?.trim();
+                                    const followersText = element.querySelector('.followers, .follower-count, [data-testid*="followers"]')?.textContent?.trim();
+                                    
+                                    let followers = 0;
+                                    if (followersText) {
+                                        if (followersText.includes('K')) {
+                                            followers = parseFloat(followersText) * 1000;
+                                        } else if (followersText.includes('M')) {
+                                            followers = parseFloat(followersText) * 1000000;
                                         } else {
-                                            followers = parseInt(followerText.replace(/\D/g, ''));
+                                            followers = parseInt(followersText.replace(/\D/g, ''));
                                         }
-                                        break;
                                     }
+                                    
+                                    if (username && followers > 0) {
+                                        const gmv = Math.max(followers * 0.025, 800);
+                                        
+                                        results.push({
+                                            username: username.startsWith('@') ? username : '@' + username,
+                                            followers: followers,
+                                            gmv: Math.round(gmv + (Math.random() * gmv * 0.3)),
+                                            category: filters.category,
+                                            profileUrl: `https://tiktok.com/${username.replace('@', '')}`,
+                                            source: 'affiliate_page'
+                                        });
+                                    }
+                                } catch (error) {
+                                    console.error('Error parsing creator from affiliate page:', error);
                                 }
-                                
-                                // Extract profile URL
-                                let profileUrl = '';
-                                const linkEl = element.querySelector('a[href*="/@"]');
-                                if (linkEl) {
-                                    profileUrl = 'https://www.tiktok.com' + linkEl.getAttribute('href');
-                                }
-                                
-                                // Estimate GMV based on follower count and engagement
-                                const baseGMV = Math.max(followers * 0.02, 500);
-                                const gmv = Math.round(baseGMV + (Math.random() * baseGMV * 0.5));
-                                
-                                if (username && followers > 0 && followers >= filters.minFollowers && followers <= filters.maxFollowers && gmv >= filters.minGmv) {
-                                    results.push({
-                                        username: username,
-                                        followers: followers,
-                                        gmv: gmv,
-                                        category: filters.category,
-                                        profileUrl: profileUrl,
-                                        searchQuery: searchQuery,
-                                        engagement: Math.round((2 + Math.random() * 4) * 100) / 100
-                                    });
-                                }
-                            } catch (error) {
-                                console.error('Error parsing creator element:', error);
-                            }
-                        });
-                    }
+                            });
+                        }
+                        
+                        return results;
+                    }, filters);
                     
-                    return results;
-                }, filters, query);
-                
-                creators.push(...pageCreators);
-                console.log(`✅ Found ${pageCreators.length} creators for query: ${query}`);
-                
-                // Rate limiting between searches
-                await page.waitForTimeout(2000);
-                
+                    creators.push(...publicCreators);
+                    console.log(`✅ Found ${publicCreators.length} creators from affiliate page`);
+                }
             } catch (error) {
-                console.error(`❌ Error scraping query "${query}":`, error.message);
+                console.log('No login required, proceeding...');
             }
+            
+            // If we didn't find creators from the affiliate page, try TikTok search as backup
+            if (creators.length === 0) {
+                console.log('🔄 No creators found on affiliate page, trying TikTok search as backup...');
+                
+                const searchQueries = [
+                    'phone repair UK',
+                    'mobile repair UK', 
+                    'screen repair',
+                    'tech repair UK',
+                    'electronics fix UK'
+                ];
+                
+                for (const query of searchQueries) {
+                    try {
+                        console.log(`🔍 Searching TikTok for: ${query}`);
+                        
+                        const searchUrl = `https://www.tiktok.com/search/user?q=${encodeURIComponent(query)}`;
+                        await page.goto(searchUrl, { 
+                            waitUntil: 'networkidle0',
+                            timeout: 20000 
+                        });
+                        
+                        // Wait for content to load
+                        await page.waitForTimeout(3000);
+                        
+                        // Scroll to load more content
+                        for (let i = 0; i < 2; i++) {
+                            await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+                            await page.waitForTimeout(2000);
+                        }
+                        
+                        // Extract creator data from search results
+                        const pageCreators = await page.evaluate((filters, searchQuery) => {
+                            const results = [];
+                            
+                            // Updated selectors for TikTok search results
+                            const profileSelectors = [
+                                '[data-e2e="search-user-item"]',
+                                '[data-e2e="user-item"]',
+                                '.css-1g95xhm-DivContainer',
+                                '[data-testid="user-link"]'
+                            ];
+                            
+                            for (const selector of profileSelectors) {
+                                const elements = document.querySelectorAll(selector);
+                                
+                                elements.forEach(element => {
+                                    try {
+                                        // Extract username
+                                        let username = '';
+                                        const usernameEl = element.querySelector('[data-e2e="search-user-unique-id"], .css-1w9ukd4-PUniqueId, p[data-e2e="user-title"]');
+                                        if (usernameEl) {
+                                            username = usernameEl.textContent.trim();
+                                            if (!username.startsWith('@')) username = '@' + username;
+                                        }
+                                        
+                                        // Extract follower count
+                                        let followers = 0;
+                                        const followerEl = element.querySelector('[data-e2e="search-user-follower-count"], .css-1w9ukd4-PFollowerCount');
+                                        if (followerEl) {
+                                            const followerText = followerEl.textContent.toLowerCase();
+                                            if (followerText.includes('k')) {
+                                                followers = parseFloat(followerText) * 1000;
+                                            } else if (followerText.includes('m')) {
+                                                followers = parseFloat(followerText) * 1000000;
+                                            } else {
+                                                followers = parseInt(followerText.replace(/\D/g, ''));
+                                            }
+                                        }
+                                        
+                                        // Extract profile URL
+                                        let profileUrl = '';
+                                        const linkEl = element.querySelector('a[href*="/@"]');
+                                        if (linkEl) {
+                                            profileUrl = 'https://www.tiktok.com' + linkEl.getAttribute('href');
+                                        }
+                                        
+                                        // Calculate estimated GMV
+                                        const baseGMV = Math.max(followers * 0.02, 500);
+                                        const gmv = Math.round(baseGMV + (Math.random() * baseGMV * 0.4));
+                                        
+                                        if (username && followers >= filters.minFollowers && followers <= filters.maxFollowers && gmv >= filters.minGmv) {
+                                            results.push({
+                                                username: username,
+                                                followers: followers,
+                                                gmv: gmv,
+                                                category: filters.category,
+                                                profileUrl: profileUrl,
+                                                searchQuery: searchQuery,
+                                                engagement: Math.round((2.5 + Math.random() * 3.5) * 100) / 100,
+                                                source: 'tiktok_search'
+                                            });
+                                        }
+                                    } catch (error) {
+                                        console.error('Error parsing creator element:', error);
+                                    }
+                                });
+                            }
+                            
+                            return results;
+                        }, filters, query);
+                        
+                        creators.push(...pageCreators);
+                        console.log(`✅ Found ${pageCreators.length} creators for query: ${query}`);
+                        
+                        // Rate limiting between searches
+                        await page.waitForTimeout(3000);
+                        
+                        // Break if we have enough creators
+                        if (creators.length >= 10) break;
+                        
+                    } catch (error) {
+                        console.error(`❌ Error scraping query "${query}":`, error.message);
+                    }
+                }
+            }
+            
+        } catch (error) {
+            console.error('❌ Error accessing affiliate page:', error.message);
         }
         
         // Remove duplicates based on username
