@@ -237,7 +237,19 @@ app.get('/auth/tiktok', (req, res) => {
     const state = generateState();
     req.session.authState = state;
     
+    // Use the TikTok Business API auth URL format
     const authUrl = `https://business-api.tiktok.com/portal/auth?app_id=${TIKTOK_CONFIG.APP_ID}&state=${state}&redirect_uri=${encodeURIComponent(TIKTOK_CONFIG.REDIRECT_URI)}`;
+    
+    res.json({ authUrl });
+});
+
+// Alternative TikTok Creator API auth route
+app.get('/auth/tiktok-creator', (req, res) => {
+    const state = generateState();
+    req.session.authState = state;
+    
+    // Use the TikTok Creator API auth URL format  
+    const authUrl = `https://www.tiktok.com/v2/auth/authorize?client_key=${TIKTOK_CONFIG.APP_ID}&scope=user.info.basic%2Cbiz.creator.info%2Cbiz.creator.insights%2Cvideo.list%2Ctcm.order.update%2Ctto.campaign.link&response_type=code&redirect_uri=${encodeURIComponent(TIKTOK_CONFIG.REDIRECT_URI)}`;
     
     res.json({ authUrl });
 });
