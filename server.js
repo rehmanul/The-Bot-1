@@ -131,16 +131,31 @@ async function getValidToken() {
 
 async function saveToken(tokenData) {
     try {
-        const expiresAt = new Date(Date.now() + (tokenData.expires_in * 1000));
+        // Default to 1 hour (3600 seconds) if expires_in is not valid
+        const expiresInSeconds = parseInt(tokenData.expires_in) || 3600;
+        const expiresAt = new Date(Date.now() + (expiresInSeconds * 1000));
+        
+        console.log('Token data received:', {
+            hasAccessToken: !!tokenData.access_token,
+            hasRefreshToken: !!tokenData.refresh_token,
+            expiresIn: tokenData.expires_in,
+            calculatedExpiresAt: expiresAt.toISOString()
+        });
         
         await pool.query(`
             INSERT INTO auth_tokens (access_token, refresh_token, expires_at, advertiser_id)
             VALUES ($1, $2, $3, $4)
-        `, [tokenData.access_token, tokenData.refresh_token, expiresAt, tokenData.advertiser_id]);
+        `, [
+            tokenData.access_token, 
+            tokenData.refresh_token || null, 
+            expiresAt, 
+            tokenData.advertiser_id || null
+        ]);
         
         console.log('✅ Token saved successfully');
     } catch (error) {
         console.error('❌ Error saving token:', error);
+        throw error; // Re-throw to handle in the calling function
     }
 }
 
@@ -257,25 +272,41 @@ app.get('/auth/tiktok-creator', (req, res) => {
 app.get('/oauth-callback', async (req, res) => {
     const { code, state } = req.query;
     
+    console.log('OAuth callback received:', { code: !!code, state, expectedState: req.session.authState });
+    
     if (!code || state !== req.session.authState) {
-        return res.status(400).json({ error: 'Invalid authorization code or state' });
+        console.error('Invalid authorization code or state mismatch');
+        return res.redirect('/?auth=error&reason=invalid_state');
     }
     
     try {
         // Exchange code for access token
+        console.log('Exchanging auth code for access token...');
         const tokenResponse = await axios.post('https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/', {
             app_id: TIKTOK_CONFIG.APP_ID,
             secret: TIKTOK_CONFIG.SECRET,
             auth_code: code
         });
         
-        const tokenData = tokenResponse.data.data;
+        console.log('Token response received:', {
+            status: tokenResponse.status,
+            hasData: !!tokenResponse.data,
+            dataKeys: Object.keys(tokenResponse.data || {})
+        });
+        
+        // Handle both possible response formats
+        const tokenData = tokenResponse.data.data || tokenResponse.data;
+        
+        if (!tokenData || !tokenData.access_token) {
+            throw new Error('No access token received from TikTok API');
+        }
+        
         await saveToken(tokenData);
         
         res.redirect('/?auth=success');
     } catch (error) {
-        console.error('Token exchange failed:', error);
-        res.redirect('/?auth=error');
+        console.error('Token exchange failed:', error.response?.data || error.message);
+        res.redirect('/?auth=error&reason=token_exchange_failed');
     }
 });
 
