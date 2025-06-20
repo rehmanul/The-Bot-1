@@ -1,2 +1,14 @@
 [nix]
 channel = "stable-24_05"
+
+[workflows]
+runButton = "Start TikTok Bot"
+
+[[workflows.workflow]]
+name = "Start TikTok Bot"
+author = 44080021
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node server.js"
